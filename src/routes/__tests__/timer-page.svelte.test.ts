@@ -3,69 +3,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/svelte';
 
+import { mockOrientation } from '../../../tests/utils/orientation';
+
 import TimerPage from '../+page.svelte';
-
-const ensureMatchMedia = () => {
-	if (!window.matchMedia) {
-		Object.defineProperty(window, 'matchMedia', {
-			value: vi.fn().mockImplementation((query: string) => ({
-				matches: false,
-				media: query,
-				addEventListener: () => {},
-				removeEventListener: () => {},
-				addListener: () => {},
-				removeListener: () => {},
-				dispatchEvent: () => false
-			})),
-			writable: true
-		});
-	}
-};
-
-const mockOrientation = (portrait: boolean) => {
-	ensureMatchMedia();
-	const listeners = new Set<(event: MediaQueryListEvent) => void>();
-	const baseListener = {
-		addEventListener: (_type: string, callback: (event: MediaQueryListEvent) => void) => {
-			listeners.add(callback);
-		},
-		removeEventListener: (_type: string, callback: (event: MediaQueryListEvent) => void) => {
-			listeners.delete(callback);
-		},
-		addListener: (callback: (event: MediaQueryListEvent) => void) => listeners.add(callback),
-		removeListener: (callback: (event: MediaQueryListEvent) => void) => listeners.delete(callback)
-	};
-
-	vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => {
-		if (query.includes('(orientation: portrait)')) {
-			return {
-				matches: portrait,
-				media: query,
-				onchange: null,
-				dispatchEvent: () => false,
-				...baseListener
-			} as MediaQueryList;
-		}
-
-		if (query.includes('(orientation: landscape)')) {
-			return {
-				matches: !portrait,
-				media: query,
-				onchange: null,
-				dispatchEvent: () => false,
-				...baseListener
-			} as MediaQueryList;
-		}
-
-		return {
-			matches: false,
-			media: query,
-			onchange: null,
-			dispatchEvent: () => false,
-			...baseListener
-		} as MediaQueryList;
-	});
-};
 
 afterEach(() => {
 	cleanup();
@@ -74,7 +14,9 @@ afterEach(() => {
 
 describe('Timer page', () => {
 	it('renders default time display and theme classes', () => {
-		mockOrientation(false);
+		const restoreOrientation = mockOrientation(false);
+
+	try {
 		const { container } = render(TimerPage);
 
 		const minutes = screen.getByTestId('minutes');
@@ -122,10 +64,15 @@ describe('Timer page', () => {
 		expect(minutesAfter.backgroundColor).toBe('rgba(0, 0, 0, 0)');
 		expect(secondsAfter.backgroundColor).toBe('rgba(0, 0, 0, 0)');
 		expect(secondsStyle.position).toBe('absolute');
+		} finally {
+			restoreOrientation();
+		}
 	});
 
 	it('stacks minutes above seconds in portrait orientation', () => {
-		mockOrientation(true);
+		const restoreOrientation = mockOrientation(true);
+
+	try {
 		const { container } = render(TimerPage);
 		const display = container.querySelector('.time-display');
 		if (!display) throw new Error('timer display not found');
@@ -143,5 +90,8 @@ describe('Timer page', () => {
 		expect(minutesStyle.textAlign).toBe('center');
 		expect(secondsStyle.textAlign).toBe('center');
 		expect(secondsStyle.transform).toBe('none');
+		} finally {
+			restoreOrientation();
+		}
 	});
 });

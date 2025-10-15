@@ -1,5 +1,7 @@
 <script lang="ts">
 import { onMount, onDestroy, afterUpdate } from 'svelte';
+import { setupKeyboardShortcuts, setupOrientationListeners } from '$lib/utils/orientation';
+import { createRippleFeedback, type RippleIcon, type RippleDisplayState } from '$lib/utils/ripple';
 	import {
 		formattedMinutes,
 		formattedSeconds,
@@ -19,15 +21,69 @@ const updateMinutesHalf = () => {
 	}
 };
 
-	let dragStartY: number | null = null;
-	let dragStartMinutes = 0;
-	let lastAppliedMinutes: number | null = null;
-	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-	let layout: 'landscape' | 'portrait' = 'landscape';
-	let minutesHalf = 0;
-	let minutesEl: HTMLElement | null = null;
-	let secondsEl: HTMLElement | null = null;
-	let resizeObserver: ResizeObserver | null = null;
+let dragStartY: number | null = null;
+let dragStartMinutes = 0;
+let lastAppliedMinutes: number | null = null;
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+let layout: 'landscape' | 'portrait' = 'landscape';
+let minutesHalf = 0;
+let minutesEl: HTMLElement | null = null;
+let secondsEl: HTMLElement | null = null;
+let resizeObserver: ResizeObserver | null = null;
+let displayEl: HTMLElement | null = null;
+let pageEl: HTMLElement | null = null;
+const rippleFeedback = createRippleFeedback(() => pageEl ?? displayEl);
+let rippleState: RippleDisplayState = {
+ x: 0,
+ y: 0,
+ size: 0,
+ active: false,
+ iconVisible: false,
+ icon: 'play'
+};
+const unsubscribeRipple = rippleFeedback.state.subscribe((value) => {
+ rippleState = value;
+});
+let cleanupOrientation: (() => void) | null = null;
+let cleanupShortcuts: (() => void) | null = null;
+
+$: iconName = $timer.status === 'running' ? 'pause' : $timer.status === 'finished' ? 'repeat' : 'play';
+
+const startRipple = (event?: PointerEvent | MouseEvent | KeyboardEvent, iconOverride?: RippleIcon) => {
+	rippleFeedback.start(event, iconOverride, iconName);
+};
+
+const clearLongPress = () => {
+	if (longPressTimer) {
+		clearTimeout(longPressTimer);
+		longPressTimer = null;
+	}
+};
+
+const getNextToggleIcon = (): RippleIcon => {
+	if ($timer.status === 'running') return 'pause';
+	if ($timer.status === 'finished') return 'repeat';
+	return 'play';
+};
+
+const handleKeydown = (event: KeyboardEvent) => {
+	const target = event.target as HTMLElement | null;
+	if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
+		return;
+	}
+
+	if (event.key === ' ' || event.code === 'Space') {
+		event.preventDefault();
+		startRipple(event, getNextToggleIcon());
+		timer.toggle();
+	}
+
+	if (event.key.toLowerCase() === 'r') {
+		event.preventDefault();
+		startRipple(event, 'repeat');
+		timer.reset();
+	}
+};
 
 const calculateLayout = () => {
 	if (typeof window === 'undefined') {
@@ -45,120 +101,71 @@ const calculateLayout = () => {
 	return window.innerHeight > window.innerWidth ? 'portrait' : 'landscape';
 };
 
-	const clearLongPress = () => {
-		if (longPressTimer) {
-			clearTimeout(longPressTimer);
-			longPressTimer = null;
+onMount(() => {
+	const applyLayout = (portrait?: boolean) => {
+		if (typeof portrait === 'boolean') {
+			layout = portrait ? 'portrait' : 'landscape';
+		} else {
+			layout = calculateLayout();
 		}
+		updateMinutesHalf();
 	};
 
-	onMount(() => {
-		const applyLayout = () => {
-			layout = calculateLayout();
-			updateMinutesHalf();
-		};
+	applyLayout();
 
-		applyLayout();
+	cleanupOrientation = setupOrientationListeners(
+		() => applyLayout(),
+		(isPortrait) => applyLayout(isPortrait)
+	);
 
-		let mq: MediaQueryList | null = null;
-		const handleChange = (event: MediaQueryListEvent) => {
-			layout = event.matches ? 'portrait' : 'landscape';
-			updateMinutesHalf();
-		};
+	cleanupShortcuts = setupKeyboardShortcuts(handleKeydown);
 
-		if (typeof window !== 'undefined') {
-			window.addEventListener('resize', applyLayout);
-		}
+	resizeObserver = new ResizeObserver(() => updateMinutesHalf());
+	if (minutesEl) resizeObserver.observe(minutesEl);
+	if (secondsEl) resizeObserver.observe(secondsEl);
 
-		if (typeof window !== 'undefined' && window.matchMedia) {
-			try {
-				mq = window.matchMedia('(orientation: portrait)');
-				layout = mq.matches ? 'portrait' : 'landscape';
-				updateMinutesHalf();
-
-				if (typeof mq.addEventListener === 'function') {
-					mq.addEventListener('change', handleChange);
-				} else if (typeof mq.addListener === 'function') {
-					mq.addListener(handleChange);
-				}
-			} catch (_error) {
-				// ignore
-			}
-		}
-
-		resizeObserver = new ResizeObserver(() => updateMinutesHalf());
-		if (minutesEl) resizeObserver.observe(minutesEl);
-		if (secondsEl) resizeObserver.observe(secondsEl);
-
-		const handleKeydown = (event: KeyboardEvent) => {
-			const target = event.target as HTMLElement | null;
-			if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
-				return;
-			}
-
-			if (event.key === ' ' || event.code === 'Space') {
-				event.preventDefault();
-				timer.toggle();
-			}
-
-			if (event.key.toLowerCase() === 'r') {
-				event.preventDefault();
-				timer.reset();
-			}
-		};
-
-		if (typeof window !== 'undefined') {
-			window.addEventListener('keydown', handleKeydown);
-			document.addEventListener('keydown', handleKeydown);
-		}
-
-		return () => {
-			if (typeof window !== 'undefined') {
-				window.removeEventListener('resize', applyLayout);
-				window.removeEventListener('keydown', handleKeydown);
-				document.removeEventListener('keydown', handleKeydown);
-			}
-
-			if (mq) {
-				if (typeof mq.removeEventListener === 'function') {
-					mq.removeEventListener('change', handleChange);
-				} else if (typeof mq.removeListener === 'function') {
-					mq.removeListener(handleChange);
-				}
-			}
-
-			resizeObserver?.disconnect();
-		};
-	});
+	return () => {
+		cleanupOrientation?.();
+		cleanupShortcuts?.();
+		resizeObserver?.disconnect();
+	};
+});
 
 onDestroy(() => {
-	resizeObserver?.disconnect();
+	rippleFeedback.clearTimers();
+	unsubscribeRipple();
+	if (longPressTimer) clearTimeout(longPressTimer);
 });
 
 afterUpdate(() => {
 	updateMinutesHalf();
 });
 
-	const handleSurfacePointerDown = (event: PointerEvent) => {
-		if ($timer.status !== 'running') return;
-		clearLongPress();
-		longPressTimer = setTimeout(() => {
-			timer.reset();
-			clearLongPress();
-		}, LONG_PRESS_MS);
-	};
+const handleSurfacePointerDown = (event: PointerEvent) => {
+	clearLongPress();
+	if ($timer.status !== 'running') {
+		return;
+	}
 
-	const handleSurfacePointerUp = () => {
+	longPressTimer = setTimeout(() => {
+		startRipple(undefined, 'repeat');
+		timer.reset();
 		clearLongPress();
-	};
+	}, LONG_PRESS_MS);
+};
 
-	const handleSurfacePointerCancel = () => {
-		clearLongPress();
-	};
+const handleSurfacePointerUp = () => {
+	clearLongPress();
+};
 
-	const toggleTimer = () => {
-		timer.toggle();
-	};
+const handleSurfacePointerCancel = () => {
+	clearLongPress();
+};
+
+const toggleTimer = (event?: MouseEvent) => {
+	startRipple(event, getNextToggleIcon());
+	timer.toggle();
+};
 
 	const handleMinutesPointerDown = (event: PointerEvent) => {
 		if ($timer.status === 'running') return;
@@ -179,12 +186,12 @@ afterUpdate(() => {
 		const offset = Math.round(-deltaY / MINUTE_PIXEL_STEP);
 		const nextMinutes = Math.max(0, dragStartMinutes + offset);
 
-	if (nextMinutes !== lastAppliedMinutes) {
-		timer.setMinutes(nextMinutes);
-		lastAppliedMinutes = nextMinutes;
-		updateMinutesHalf();
-	}
-};
+		if (nextMinutes !== lastAppliedMinutes) {
+			timer.setMinutes(nextMinutes);
+			lastAppliedMinutes = nextMinutes;
+			updateMinutesHalf();
+		}
+	};
 
 	const endMinutesDrag = (event: PointerEvent) => {
 		const target = event.currentTarget as HTMLElement;
@@ -213,12 +220,24 @@ afterUpdate(() => {
 	/>
 </svelte:head>
 
-<div class="timer-page theme-red" class:timer-complete={$timer.status === 'finished'}>
+<div
+	class="timer-page theme-red"
+	class:timer-complete={$timer.status === 'finished'}
+	bind:this={pageEl}
+>
+	<div class="page-ripple-layer" aria-hidden="true">
+		<div
+			class="ripple-circle"
+			class:is-active={rippleState.active}
+			style={`--ripple-x: ${rippleState.x}px; --ripple-y: ${rippleState.y}px; --ripple-size: ${rippleState.size}px;`}
+		></div>
+	</div>
 	<main
 		class="time-display"
 		aria-label="Countdown timer"
 		data-state={$timer.status}
 		data-layout={layout}
+		bind:this={displayEl}
 		style={`--minutes-half: ${minutesHalf}px;`}
 		on:dblclick={toggleTimer}
 		on:pointerdown={handleSurfacePointerDown}
@@ -244,6 +263,21 @@ afterUpdate(() => {
 		>
 			{$formattedSeconds}
 		</span>
+		<div class="state-icon" aria-hidden="true" class:visible={rippleState.iconVisible}>
+			{#if rippleState.icon === 'pause'}
+				<svg viewBox="0 0 24 24" role="presentation">
+					<path d="M7 5h3v14H7zm7 0h3v14h-3z" />
+				</svg>
+			{:else if rippleState.icon === 'repeat'}
+				<svg viewBox="0 0 24 24" role="presentation">
+					<path d="M17 2l4 4-4 4V7H8a4 4 0 0 0-4 4v2H2v-2a6 6 0 0 1 6-6h9V2zm-2 15H6v-3l-4 4 4 4v-3h9a4 4 0 0 0 4-4v-2h2v2a6 6 0 0 1-6 6z" />
+				</svg>
+			{:else}
+				<svg viewBox="0 0 24 24" role="presentation">
+					<path d="M8 5v14l11-7z" />
+				</svg>
+			{/if}
+		</div>
 	</main>
 </div>
 
@@ -255,6 +289,8 @@ afterUpdate(() => {
 		align-items: center;
 		justify-content: center;
 		font-family: 'B612 Mono', monospace;
+		position: relative;
+		overflow: hidden;
 	}
 
 	.timer-page.timer-complete {
@@ -266,6 +302,14 @@ afterUpdate(() => {
 		color: #fff;
 	}
 
+	.page-ripple-layer {
+		pointer-events: none;
+		position: absolute;
+		inset: 0;
+		overflow: hidden;
+		z-index: 0;
+	}
+
 	.time-display {
 		position: relative;
 		display: inline-block;
@@ -274,6 +318,7 @@ afterUpdate(() => {
 		font-weight: 700;
 		touch-action: none;
 		user-select: none;
+		z-index: 1;
 	}
 
 	.time-display[data-layout='portrait'] {
@@ -285,9 +330,11 @@ afterUpdate(() => {
 	}
 
 	.time-part {
+		position: relative;
 		display: inline-block;
 		font-variant-numeric: tabular-nums;
 		touch-action: none;
+		z-index: 1;
 	}
 
 	.time-display[data-layout='portrait'] .time-part {
@@ -308,12 +355,63 @@ afterUpdate(() => {
 		position: absolute;
 		bottom: 0;
 		left: calc(50% + var(--minutes-half, 0px) + clamp(1rem, 4vw, 3rem));
+		z-index: 1;
 	}
 
 	.time-display[data-layout='portrait'] .seconds-offset-right {
 		position: static;
 		left: auto;
 		bottom: auto;
+	}
+
+	.page-ripple-layer .ripple-circle {
+		position: absolute;
+		left: calc(var(--ripple-x, 0px) - var(--ripple-size, 0px));
+		top: calc(var(--ripple-y, 0px) - var(--ripple-size, 0px));
+		width: calc(var(--ripple-size, 0px) * 2);
+		height: calc(var(--ripple-size, 0px) * 2);
+		border-radius: 50%;
+		background: radial-gradient(circle, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0));
+		opacity: 0;
+		transform: scale(0);
+	}
+
+	.page-ripple-layer .ripple-circle.is-active {
+		animation: ripple-expand 450ms ease-out forwards;
+	}
+
+	@keyframes ripple-expand {
+		0% {
+			opacity: 0.85;
+			transform: scale(0.15);
+		}
+
+		100% {
+			opacity: 0;
+			transform: scale(1.6);
+		}
+	}
+
+	.state-icon {
+		pointer-events: none;
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		opacity: 0;
+		transition: opacity 150ms ease;
+		z-index: 2;
+	}
+
+	.state-icon.visible {
+		opacity: 0.85;
+	}
+
+	.state-icon svg {
+		width: clamp(2.5rem, 12vw, 4.5rem);
+		height: clamp(2.5rem, 12vw, 4.5rem);
+		fill: currentColor;
 	}
 
 	@keyframes complete-flash {
