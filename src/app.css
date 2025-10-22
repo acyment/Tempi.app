@@ -1,2 +1,10 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
+
+@font-face {
+	font-family: 'B612 Mono';
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+	src: url('/fonts/b612-mono-700.woff2') format('woff2');
+}

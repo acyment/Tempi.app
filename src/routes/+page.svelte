@@ -241,10 +241,7 @@ const toggleTimer = (event?: MouseEvent) => {
 </script>
 
 <svelte:head>
-	<link
-		rel="stylesheet"
-		href="https://fonts.googleapis.com/css2?family=B612+Mono:wght@700&display=swap"
-	/>
+	<link rel="preload" href="/fonts/b612-mono-700.woff2" as="font" type="font/woff2" crossorigin />
 </svelte:head>
 
 <div
