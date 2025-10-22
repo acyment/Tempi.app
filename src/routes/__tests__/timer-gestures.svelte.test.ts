@@ -63,6 +63,36 @@ describe('Timer gestures slice 1', () => {
 		expect(seconds.textContent).toBe('59');
 	});
 
+	it('treats two quick touch taps as a toggle gesture', async () => {
+		vi.useFakeTimers();
+		render(TimerPage);
+		const surface = screen.getByRole('main', { name: /countdown timer/i });
+
+		fireEvent.pointerDown(surface, {
+			pointerId: 11,
+			pointerType: 'touch'
+		});
+		fireEvent.pointerUp(surface, {
+			pointerId: 11,
+			pointerType: 'touch'
+		});
+
+		await vi.advanceTimersByTimeAsync(0);
+
+		fireEvent.pointerDown(surface, {
+			pointerId: 12,
+			pointerType: 'touch'
+		});
+		fireEvent.pointerUp(surface, {
+			pointerId: 12,
+			pointerType: 'touch'
+		});
+
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(surface.getAttribute('data-state')).toBe('running');
+	});
+
 	it('long press resets to default time and stops timer', async () => {
 		vi.useFakeTimers();
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -88,4 +118,5 @@ describe('Timer gestures slice 1', () => {
 		expect(minutes.textContent).toBe('5');
 		expect(seconds.textContent).toBe('00');
 	});
+
 });

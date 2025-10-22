@@ -14,7 +14,7 @@ export interface RippleDisplayState {
 
 type HostResolver = () => HTMLElement | null;
 
-const INITIAL_STATE: RippleDisplayState = {
+export const INITIAL_RIPPLE_STATE: RippleDisplayState = {
 	x: 0,
 	y: 0,
 	size: 0,
@@ -24,7 +24,7 @@ const INITIAL_STATE: RippleDisplayState = {
 };
 
 export function createRippleFeedback(hostResolver: HostResolver) {
-	const state = writable<RippleDisplayState>(INITIAL_STATE);
+	const state = writable<RippleDisplayState>(INITIAL_RIPPLE_STATE);
 
 	let rippleTimeout: ReturnType<typeof setTimeout> | null = null;
 	let iconTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -96,5 +96,23 @@ export function createRippleFeedback(hostResolver: HostResolver) {
 		state: state as Readable<RippleDisplayState>,
 		start,
 		clearTimers
+	};
+}
+
+export function createRippleController(hostResolver: HostResolver) {
+	const feedback = createRippleFeedback(hostResolver);
+	let currentState = INITIAL_RIPPLE_STATE;
+	const unsubscribe = feedback.state.subscribe((value) => {
+		currentState = value;
+	});
+
+	return {
+		subscribe: feedback.state.subscribe,
+		get state() {
+			return currentState;
+		},
+		start: feedback.start,
+		clearTimers: feedback.clearTimers,
+		destroy: () => unsubscribe()
 	};
 }

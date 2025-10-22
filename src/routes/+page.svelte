@@ -1,7 +1,9 @@
 <script lang="ts">
 import { onMount, onDestroy, afterUpdate } from 'svelte';
 import { setupKeyboardShortcuts, setupOrientationListeners } from '$lib/utils/orientation';
-import { createRippleFeedback, type RippleIcon, type RippleDisplayState } from '$lib/utils/ripple';
+import { releasePointerCapture } from '$lib/utils/pointer';
+import { createRippleController, type RippleIcon, type RippleDisplayState } from '$lib/utils/ripple';
+import { computeTimerFontSizes } from '$lib/utils/typography';
 	import {
 		formattedMinutes,
 		formattedSeconds,
@@ -10,6 +12,7 @@ import { createRippleFeedback, type RippleIcon, type RippleDisplayState } from '
 
 const MINUTE_PIXEL_STEP = 60;
 const LONG_PRESS_MS = 600;
+const TOUCH_DOUBLE_TAP_WINDOW = 350;
 
 const updateMinutesHalf = () => {
 	if (layout !== 'landscape') {
@@ -18,6 +21,22 @@ const updateMinutesHalf = () => {
 	}
 	if (minutesEl) {
 		minutesHalf = (minutesEl.offsetWidth ?? 0) / 2;
+	}
+};
+
+const updateTypography = () => {
+	if (typeof window === 'undefined') return;
+	const { minutesPx, secondsPx } = computeTimerFontSizes({
+		viewportHeight: window.innerHeight || 0,
+		viewportWidth: window.innerWidth || 0
+	});
+
+	if (Number.isFinite(minutesPx) && minutesPx > 0) {
+		minutesFontSize = `${minutesPx}px`;
+	}
+
+	if (Number.isFinite(secondsPx) && secondsPx > 0) {
+		secondsFontSize = `${secondsPx}px`;
 	}
 };
 
@@ -32,25 +51,21 @@ let secondsEl: HTMLElement | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let displayEl: HTMLElement | null = null;
 let pageEl: HTMLElement | null = null;
-const rippleFeedback = createRippleFeedback(() => pageEl ?? displayEl);
-let rippleState: RippleDisplayState = {
- x: 0,
- y: 0,
- size: 0,
- active: false,
- iconVisible: false,
- icon: 'play'
-};
-const unsubscribeRipple = rippleFeedback.state.subscribe((value) => {
- rippleState = value;
+const rippleController = createRippleController(() => pageEl ?? displayEl);
+let rippleState: RippleDisplayState = rippleController.state;
+const unsubscribeRipple = rippleController.subscribe((value) => {
+	rippleState = value;
 });
 let cleanupOrientation: (() => void) | null = null;
 let cleanupShortcuts: (() => void) | null = null;
+let lastTouchTapTime: number | null = null;
+let minutesFontSize = '12rem';
+let secondsFontSize = '4rem';
 
 $: iconName = $timer.status === 'running' ? 'pause' : $timer.status === 'finished' ? 'repeat' : 'play';
 
 const startRipple = (event?: PointerEvent | MouseEvent | KeyboardEvent, iconOverride?: RippleIcon) => {
-	rippleFeedback.start(event, iconOverride, iconName);
+	rippleController.start(event, iconOverride, iconName);
 };
 
 const clearLongPress = () => {
@@ -102,16 +117,17 @@ const calculateLayout = () => {
 };
 
 onMount(() => {
-	const applyLayout = (portrait?: boolean) => {
-		if (typeof portrait === 'boolean') {
-			layout = portrait ? 'portrait' : 'landscape';
-		} else {
-			layout = calculateLayout();
-		}
-		updateMinutesHalf();
-	};
+		const applyLayout = (portrait?: boolean) => {
+			if (typeof portrait === 'boolean') {
+				layout = portrait ? 'portrait' : 'landscape';
+			} else {
+				layout = calculateLayout();
+			}
+			updateMinutesHalf();
+			updateTypography();
+		};
 
-	applyLayout();
+		applyLayout();
 
 	cleanupOrientation = setupOrientationListeners(
 		() => applyLayout(),
@@ -132,13 +148,14 @@ onMount(() => {
 });
 
 onDestroy(() => {
-	rippleFeedback.clearTimers();
+	rippleController.clearTimers();
 	unsubscribeRipple();
 	if (longPressTimer) clearTimeout(longPressTimer);
 });
 
 afterUpdate(() => {
 	updateMinutesHalf();
+	updateTypography();
 });
 
 const handleSurfacePointerDown = (event: PointerEvent) => {
@@ -154,11 +171,27 @@ const handleSurfacePointerDown = (event: PointerEvent) => {
 	}, LONG_PRESS_MS);
 };
 
-const handleSurfacePointerUp = () => {
+const handleSurfacePointerUp = (event: PointerEvent) => {
+	if (event.pointerType === 'touch') {
+		const now =
+			typeof performance !== 'undefined' && typeof performance.now === 'function'
+				? performance.now()
+				: Date.now();
+		if (lastTouchTapTime !== null && now - lastTouchTapTime <= TOUCH_DOUBLE_TAP_WINDOW) {
+			lastTouchTapTime = null;
+			clearLongPress();
+			startRipple(event, getNextToggleIcon());
+			timer.toggle();
+			return;
+		}
+		lastTouchTapTime = now;
+	}
+
 	clearLongPress();
 };
 
-const handleSurfacePointerCancel = () => {
+const handleSurfacePointerCancel = (event: PointerEvent) => {
+	lastTouchTapTime = null;
 	clearLongPress();
 };
 
@@ -194,20 +227,14 @@ const toggleTimer = (event?: MouseEvent) => {
 	};
 
 	const endMinutesDrag = (event: PointerEvent) => {
-		const target = event.currentTarget as HTMLElement;
-		if (target.hasPointerCapture?.(event.pointerId)) {
-			target.releasePointerCapture(event.pointerId);
-		}
+		releasePointerCapture(event.currentTarget as HTMLElement | null, event);
 		dragStartY = null;
 		lastAppliedMinutes = null;
 	};
 
 	const cancelMinutesDrag = (event: PointerEvent) => {
 		if (dragStartY === null) return;
-		const target = event.currentTarget as HTMLElement;
-		if (target.hasPointerCapture?.(event.pointerId)) {
-			target.releasePointerCapture(event.pointerId);
-		}
+		releasePointerCapture(event.currentTarget as HTMLElement | null, event);
 		dragStartY = null;
 		lastAppliedMinutes = null;
 	};
@@ -238,7 +265,7 @@ const toggleTimer = (event?: MouseEvent) => {
 		data-state={$timer.status}
 		data-layout={layout}
 		bind:this={displayEl}
-		style={`--minutes-half: ${minutesHalf}px;`}
+		style={`--minutes-half: ${minutesHalf}px; --minutes-font-size: ${minutesFontSize}; --seconds-font-size: ${secondsFontSize};`}
 		on:dblclick={toggleTimer}
 		on:pointerdown={handleSurfacePointerDown}
 		on:pointerup={handleSurfacePointerUp}
@@ -343,12 +370,12 @@ const toggleTimer = (event?: MouseEvent) => {
 	}
 
 	.minutes {
-		font-size: clamp(32rem, 40vw, 16rem);
+		font-size: var(--minutes-font-size, clamp(12rem, 40vw, 32rem));
 		position: relative;
 	}
 
 	.seconds {
-		font-size: clamp(10rem, 10vw, 4rem);
+		font-size: var(--seconds-font-size, clamp(4rem, 12vw, 12rem));
 	}
 
 	.seconds-offset-right {
@@ -413,6 +440,7 @@ const toggleTimer = (event?: MouseEvent) => {
 		height: clamp(2.5rem, 12vw, 4.5rem);
 		fill: currentColor;
 	}
+
 
 	@keyframes complete-flash {
 		0% {

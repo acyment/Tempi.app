@@ -2,6 +2,8 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import { sveltekit } from '@sveltejs/kit/vite';
 
+import { VITEST_BROWSER_INSTANCES } from './tests/config/browser';
+
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
 	test: {
@@ -15,7 +17,7 @@ export default defineConfig({
 					browser: {
 						enabled: true,
 						provider: 'playwright',
-						instances: [{ browser: 'chromium' }]
+						instances: [...VITEST_BROWSER_INSTANCES]
 					},
 					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
 					exclude: ['src/lib/server/**', 'e2e/**'],

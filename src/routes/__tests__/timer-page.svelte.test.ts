@@ -1,22 +1,27 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/svelte';
 
 import { mockOrientation } from '../../../tests/utils/orientation';
 
 import TimerPage from '../+page.svelte';
 
+let restoreOrientation: (() => void) | null = null;
+
+beforeEach(() => {
+	restoreOrientation = mockOrientation(false);
+});
+
 afterEach(() => {
+	restoreOrientation?.();
+	restoreOrientation = null;
 	cleanup();
 	vi.restoreAllMocks();
 });
 
 describe('Timer page', () => {
 	it('renders default time display and theme classes', () => {
-		const restoreOrientation = mockOrientation(false);
-
-	try {
 		const { container } = render(TimerPage);
 
 		const minutes = screen.getByTestId('minutes');
@@ -64,15 +69,11 @@ describe('Timer page', () => {
 		expect(minutesAfter.backgroundColor).toBe('rgba(0, 0, 0, 0)');
 		expect(secondsAfter.backgroundColor).toBe('rgba(0, 0, 0, 0)');
 		expect(secondsStyle.position).toBe('absolute');
-		} finally {
-			restoreOrientation();
-		}
 	});
 
 	it('stacks minutes above seconds in portrait orientation', () => {
-		const restoreOrientation = mockOrientation(true);
-
-	try {
+		restoreOrientation?.();
+		restoreOrientation = mockOrientation(true);
 		const { container } = render(TimerPage);
 		const display = container.querySelector('.time-display');
 		if (!display) throw new Error('timer display not found');
@@ -90,8 +91,29 @@ describe('Timer page', () => {
 		expect(minutesStyle.textAlign).toBe('center');
 		expect(secondsStyle.textAlign).toBe('center');
 		expect(secondsStyle.transform).toBe('none');
-		} finally {
-			restoreOrientation();
-		}
+	});
+
+	it('keeps digits within viewport bounds in short landscape viewports', () => {
+		vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(430);
+		vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(932);
+		const { container } = render(TimerPage);
+		const display = container.querySelector('.time-display');
+		const minutes = screen.getByTestId('minutes');
+		const seconds = screen.getByTestId('seconds');
+		if (!display) throw new Error('timer display not found');
+
+		const displayRect = display.getBoundingClientRect();
+		const minutesRect = minutes.getBoundingClientRect();
+		const secondsRect = seconds.getBoundingClientRect();
+		const minutesFont = parseFloat(getComputedStyle(minutes).fontSize);
+		const secondsFont = parseFloat(getComputedStyle(seconds).fontSize);
+
+		expect(minutesFont).toBeGreaterThanOrEqual(window.innerHeight * 0.82);
+		expect(minutesFont).toBeLessThanOrEqual(window.innerHeight * 0.92);
+		expect(secondsFont).toBeLessThanOrEqual(window.innerHeight * 0.4);
+		expect(secondsFont * 3.1).toBeLessThanOrEqual(minutesFont);
+		expect(minutesRect.bottom).toBeLessThanOrEqual(displayRect.bottom);
+		expect(secondsRect.bottom).toBeLessThanOrEqual(displayRect.bottom);
+		expect(secondsRect.top).toBeGreaterThanOrEqual(displayRect.top);
 	});
 });

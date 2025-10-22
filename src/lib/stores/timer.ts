@@ -1,5 +1,7 @@
 import { derived, writable, type Readable } from 'svelte/store';
 
+import { formatMinutes, formatSeconds } from '$lib/utils/time';
+
 type TimerStatus = 'idle' | 'running' | 'paused' | 'finished';
 
 interface TimerState {
@@ -9,14 +11,6 @@ interface TimerState {
 }
 
 const DEFAULT_DURATION_SECONDS = 300;
-
-function formatMinutes(value: number): string {
-	return Math.floor(value).toString();
-}
-
-function formatSeconds(value: number): string {
-	return value.toString().padStart(2, '0');
-}
 
 function createTimerStore() {
 	const { subscribe, set, update } = writable<TimerState>({
@@ -230,9 +224,9 @@ export type TimerReadable = Readable<TimerState> & {
 };
 
 export const formattedMinutes = derived(timerStore as Readable<TimerState>, ($timer) =>
-	formatMinutes($timer.remainingSeconds / 60)
+	formatMinutes($timer.remainingSeconds)
 );
 
 export const formattedSeconds = derived(timerStore as Readable<TimerState>, ($timer) =>
-	formatSeconds($timer.remainingSeconds % 60)
+	formatSeconds($timer.remainingSeconds)
 );
