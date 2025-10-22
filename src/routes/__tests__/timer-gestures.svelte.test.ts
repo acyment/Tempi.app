@@ -41,12 +41,12 @@ describe('Timer gestures slice 1', () => {
 	});
 
 	it('double-tap anywhere toggles running state and countdown', async () => {
-		vi.useFakeTimers();
-		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-		render(TimerPage);
+	vi.useFakeTimers();
+	const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+	render(TimerPage);
 	const surface = screen.getByRole('main', { name: /countdown timer/i });
-		const minutes = screen.getByTestId('minutes');
-		const seconds = screen.getByTestId('seconds');
+	const minutes = screen.getByTestId('minutes');
+	const seconds = screen.getByTestId('seconds');
 
 		await user.dblClick(surface);
 		expect(surface.getAttribute('data-state')).toBe('running');
@@ -113,6 +113,26 @@ describe('Timer gestures slice 1', () => {
 			pointerId: 2,
 			pointerType: 'touch'
 		});
+
+		expect(surface.getAttribute('data-state')).toBe('idle');
+		expect(minutes.textContent).toBe('5');
+		expect(seconds.textContent).toBe('00');
+	});
+
+	it('long press reset survives pointer cancel events', async () => {
+		vi.useFakeTimers();
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(TimerPage);
+		const surface = screen.getByRole('main', { name: /countdown timer/i });
+		const minutes = screen.getByTestId('minutes');
+		const seconds = screen.getByTestId('seconds');
+
+		await user.dblClick(surface);
+		expect(surface.getAttribute('data-state')).toBe('running');
+
+		fireEvent.pointerDown(surface, { pointerId: 7, pointerType: 'touch' });
+		await vi.advanceTimersByTimeAsync(650);
+		fireEvent.pointerCancel(surface, { pointerId: 7, pointerType: 'touch' });
 
 		expect(surface.getAttribute('data-state')).toBe('idle');
 		expect(minutes.textContent).toBe('5');

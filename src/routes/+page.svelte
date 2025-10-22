@@ -61,6 +61,8 @@ let cleanupShortcuts: (() => void) | null = null;
 let lastTouchTapTime: number | null = null;
 let minutesFontSize = '12rem';
 let secondsFontSize = '4rem';
+let surfacePointerStart: number | null = null;
+let longPressConsumed = false;
 
 $: iconName = $timer.status === 'running' ? 'pause' : $timer.status === 'finished' ? 'repeat' : 'play';
 
@@ -72,6 +74,26 @@ const clearLongPress = () => {
 	if (longPressTimer) {
 		clearTimeout(longPressTimer);
 		longPressTimer = null;
+	}
+};
+
+const setPointerCaptureSafe = (target: HTMLElement | null, event: PointerEvent) => {
+	if (target?.setPointerCapture) {
+		try {
+			target.setPointerCapture(event.pointerId);
+		} catch (_error) {
+			// Some environments (jsdom) do not fully support pointer capture; ignore.
+		}
+	}
+};
+
+const releasePointerCaptureSafe = (target: HTMLElement | null, event: PointerEvent) => {
+	if (target?.releasePointerCapture) {
+		try {
+			target.releasePointerCapture(event.pointerId);
+		} catch (_error) {
+			// Ignore if capture was never set.
+		}
 	}
 };
 
@@ -164,35 +186,74 @@ const handleSurfacePointerDown = (event: PointerEvent) => {
 		return;
 	}
 
+	if (event.pointerType === 'touch') {
+		event.preventDefault();
+		setPointerCaptureSafe(event.currentTarget as HTMLElement | null, event);
+	}
+
+	longPressConsumed = false;
+	surfacePointerStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
 	longPressTimer = setTimeout(() => {
 		startRipple(undefined, 'repeat');
 		timer.reset();
+		longPressConsumed = true;
+		surfacePointerStart = null;
 		clearLongPress();
 	}, LONG_PRESS_MS);
 };
 
 const handleSurfacePointerUp = (event: PointerEvent) => {
+	releasePointerCaptureSafe(event.currentTarget as HTMLElement | null, event);
+	const now =
+		typeof performance !== 'undefined' && typeof performance.now === 'function'
+			? performance.now()
+			: Date.now();
+	const pressedDuration = surfacePointerStart !== null ? now - surfacePointerStart : 0;
+	const shouldReset = !longPressConsumed && pressedDuration >= LONG_PRESS_MS;
+
+	if (shouldReset && $timer.status === 'running') {
+		startRipple(event, 'repeat');
+		timer.reset();
+		clearLongPress();
+		lastTouchTapTime = null;
+		surfacePointerStart = null;
+		longPressConsumed = false;
+		return;
+	}
+
 	if (event.pointerType === 'touch') {
-		const now =
-			typeof performance !== 'undefined' && typeof performance.now === 'function'
-				? performance.now()
-				: Date.now();
 		if (lastTouchTapTime !== null && now - lastTouchTapTime <= TOUCH_DOUBLE_TAP_WINDOW) {
 			lastTouchTapTime = null;
 			clearLongPress();
 			startRipple(event, getNextToggleIcon());
 			timer.toggle();
+			longPressConsumed = false;
 			return;
 		}
 		lastTouchTapTime = now;
 	}
 
 	clearLongPress();
+	surfacePointerStart = null;
+	longPressConsumed = false;
 };
 
 const handleSurfacePointerCancel = (event: PointerEvent) => {
+	releasePointerCaptureSafe(event.currentTarget as HTMLElement | null, event);
 	lastTouchTapTime = null;
+	const now =
+		typeof performance !== 'undefined' && typeof performance.now === 'function'
+			? performance.now()
+			: Date.now();
+	const pressedDuration = surfacePointerStart !== null ? now - surfacePointerStart : 0;
+	if (!longPressConsumed && pressedDuration >= LONG_PRESS_MS && $timer.status === 'running') {
+		startRipple(event, 'repeat');
+		timer.reset();
+	}
 	clearLongPress();
+	surfacePointerStart = null;
+	longPressConsumed = false;
 };
 
 const toggleTimer = (event?: MouseEvent) => {
