@@ -403,6 +403,8 @@ const toggleTimer = (event?: MouseEvent) => {
 		font-weight: 700;
 		touch-action: none;
 		user-select: none;
+		-webkit-user-select: none;
+		-webkit-touch-callout: none;
 		z-index: 1;
 	}
 
