@@ -1,8 +1,11 @@
 <script lang="ts">
-	import '../app.css';
-	import favicon from '$lib/assets/favicon.svg';
+import { usePWA } from '$lib/pwa/register-sw';
+import '../app.css';
+import favicon from '$lib/assets/favicon.svg';
 
-	let { children } = $props();
+let { children } = $props();
+
+usePWA();
 </script>
 
 <svelte:head>
