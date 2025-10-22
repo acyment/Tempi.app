@@ -1,5 +1,6 @@
 <script lang="ts">
 import { usePWA } from '$lib/pwa/register-sw';
+import PWAPrompt from '$lib/components/PWAPrompt.svelte';
 import '../app.css';
 import favicon from '$lib/assets/favicon.svg';
 
@@ -13,3 +14,4 @@ usePWA();
 </svelte:head>
 
 {@render children?.()}
+<PWAPrompt />
