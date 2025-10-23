@@ -4,6 +4,7 @@ import { setupKeyboardShortcuts, setupOrientationListeners } from '$lib/utils/or
 import { releasePointerCapture } from '$lib/utils/pointer';
 import { createRippleController, type RippleIcon, type RippleDisplayState } from '$lib/utils/ripple';
 import { computeTimerFontSizes } from '$lib/utils/typography';
+import { enterFullscreen, exitFullscreen, isFullscreenActive, isFullscreenSupported } from '$lib/utils/fullscreen';
 	import {
 		formattedMinutes,
 		formattedSeconds,
@@ -63,6 +64,7 @@ let minutesFontSize = '12rem';
 let secondsFontSize = '4rem';
 let surfacePointerStart: number | null = null;
 let longPressConsumed = false;
+let canUseFullscreen = false;
 
 $: iconName = $timer.status === 'running' ? 'pause' : $timer.status === 'finished' ? 'repeat' : 'play';
 
@@ -139,17 +141,18 @@ const calculateLayout = () => {
 };
 
 onMount(() => {
-		const applyLayout = (portrait?: boolean) => {
-			if (typeof portrait === 'boolean') {
-				layout = portrait ? 'portrait' : 'landscape';
-			} else {
-				layout = calculateLayout();
-			}
-			updateMinutesHalf();
-			updateTypography();
-		};
+	const applyLayout = (portrait?: boolean) => {
+		if (typeof portrait === 'boolean') {
+			layout = portrait ? 'portrait' : 'landscape';
+		} else {
+			layout = calculateLayout();
+		}
+		updateMinutesHalf();
+		updateTypography();
+	};
 
-		applyLayout();
+	applyLayout();
+	canUseFullscreen = isFullscreenSupported();
 
 	cleanupOrientation = setupOrientationListeners(
 		() => applyLayout(),
@@ -173,6 +176,9 @@ onDestroy(() => {
 	rippleController.clearTimers();
 	unsubscribeRipple();
 	if (longPressTimer) clearTimeout(longPressTimer);
+	if (canUseFullscreen && isFullscreenActive()) {
+		void exitFullscreen();
+	}
 });
 
 afterUpdate(() => {
@@ -260,6 +266,14 @@ const toggleTimer = (event?: MouseEvent) => {
 	startRipple(event, getNextToggleIcon());
 	timer.toggle();
 };
+
+$: if (canUseFullscreen && $timer.status === 'running' && !isFullscreenActive()) {
+	void enterFullscreen(pageEl ?? displayEl ?? null).catch(() => {});
+}
+
+$: if (canUseFullscreen && $timer.status !== 'running' && isFullscreenActive()) {
+	void exitFullscreen().catch(() => {});
+}
 
 	const handleMinutesPointerDown = (event: PointerEvent) => {
 		if ($timer.status === 'running') return;
