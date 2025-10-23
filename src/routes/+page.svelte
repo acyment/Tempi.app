@@ -5,6 +5,7 @@ import { releasePointerCapture } from '$lib/utils/pointer';
 import { createRippleController, type RippleIcon, type RippleDisplayState } from '$lib/utils/ripple';
 import { computeTimerFontSizes } from '$lib/utils/typography';
 import { enterFullscreen, exitFullscreen, isFullscreenActive, isFullscreenSupported } from '$lib/utils/fullscreen';
+import { get } from 'svelte/store';
 	import {
 		formattedMinutes,
 		formattedSeconds,
@@ -65,6 +66,7 @@ let secondsFontSize = '4rem';
 let surfacePointerStart: number | null = null;
 let longPressConsumed = false;
 let canUseFullscreen = false;
+let unsubscribeTimerStatus: (() => void) | null = null;
 
 $: iconName = $timer.status === 'running' ? 'pause' : $timer.status === 'finished' ? 'repeat' : 'play';
 
@@ -121,6 +123,9 @@ const handleKeydown = (event: KeyboardEvent) => {
 		event.preventDefault();
 		startRipple(event, 'repeat');
 		timer.reset();
+		if (canUseFullscreen) {
+			void exitFullscreen().catch(() => {});
+		}
 	}
 };
 
@@ -153,6 +158,17 @@ onMount(() => {
 
 	applyLayout();
 	canUseFullscreen = isFullscreenSupported();
+	let lastStatus = get(timer).status;
+	unsubscribeTimerStatus = timer.subscribe(($timer) => {
+		if (!canUseFullscreen) {
+			lastStatus = $timer.status;
+			return;
+		}
+		if (lastStatus === 'running' && $timer.status !== 'running') {
+			void exitFullscreen().catch(() => {});
+		}
+		lastStatus = $timer.status;
+	});
 
 	cleanupOrientation = setupOrientationListeners(
 		() => applyLayout(),
@@ -179,6 +195,7 @@ onDestroy(() => {
 	if (canUseFullscreen && isFullscreenActive()) {
 		void exitFullscreen();
 	}
+	unsubscribeTimerStatus?.();
 });
 
 afterUpdate(() => {
@@ -205,6 +222,9 @@ const handleSurfacePointerDown = (event: PointerEvent) => {
 		timer.reset();
 		longPressConsumed = true;
 		surfacePointerStart = null;
+		if (canUseFullscreen) {
+			void exitFullscreen().catch(() => {});
+		}
 		clearLongPress();
 	}, LONG_PRESS_MS);
 };
@@ -221,6 +241,9 @@ const handleSurfacePointerUp = (event: PointerEvent) => {
 	if (shouldReset && $timer.status === 'running') {
 		startRipple(event, 'repeat');
 		timer.reset();
+		if (canUseFullscreen) {
+			void exitFullscreen().catch(() => {});
+		}
 		clearLongPress();
 		lastTouchTapTime = null;
 		surfacePointerStart = null;
@@ -256,6 +279,9 @@ const handleSurfacePointerCancel = (event: PointerEvent) => {
 	if (!longPressConsumed && pressedDuration >= LONG_PRESS_MS && $timer.status === 'running') {
 		startRipple(event, 'repeat');
 		timer.reset();
+		if (canUseFullscreen) {
+			void exitFullscreen().catch(() => {});
+		}
 	}
 	clearLongPress();
 	surfacePointerStart = null;
@@ -264,7 +290,19 @@ const handleSurfacePointerCancel = (event: PointerEvent) => {
 
 const toggleTimer = (event?: MouseEvent) => {
 	startRipple(event, getNextToggleIcon());
+	const previousStatus = get(timer).status;
 	timer.toggle();
+	const nextStatus = get(timer).status;
+
+	if (!canUseFullscreen) {
+		return;
+	}
+
+	if (previousStatus !== 'running' && nextStatus === 'running') {
+		void enterFullscreen(pageEl ?? displayEl ?? null).catch(() => {});
+	} else if (previousStatus === 'running' && nextStatus !== 'running') {
+		void exitFullscreen().catch(() => {});
+	}
 };
 
 $: if (canUseFullscreen && $timer.status === 'running' && !isFullscreenActive()) {
